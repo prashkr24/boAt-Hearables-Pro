@@ -18,13 +18,15 @@ import com.boat.hearables.pro.MainActivity
 import com.boat.hearables.pro.R
 import com.boat.hearables.pro.data.AppPreferences
 import com.boat.hearables.pro.data.BoatDeviceCatalog
+import com.boat.hearables.pro.data.RoomPlacement
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.roundToInt
 
 /**
- * Singleton DSP engine that attaches Android's modern 10-Band `DynamicsProcessing`
- * (plus `Equalizer`, `BassBoost`, `Virtualizer`, and `LoudnessEnhancer`) to global output (session 0)
- * and all active media player audio sessions.
+ * Dedicated DSP audio engine for the boAt Nirvana Luxe speaker.
+ * Synchronizes the 7 native BES hardware equalizer bands
+ * (`60Hz, 120Hz, 250Hz, 750Hz, 2000Hz, 5000Hz, 15000Hz`) and Room Placement compensation
+ * with Android's system-wide `DynamicsProcessing`, `BassBoost`, `Virtualizer`, and `LoudnessEnhancer`.
  */
 object DspAudioController {
 
@@ -55,7 +57,9 @@ object DspAudioController {
     fun applyFromPreferences(context: Context) {
         val prefs = AppPreferences(context)
         applyDspState(
+            enabled = prefs.hardwareEqEnabled,
             gainsDb = prefs.currentBandGains,
+            roomPlacement = prefs.roomPlacement,
             preAmpDb = prefs.preAmpDb,
             limiterEnabled = prefs.limiterEnabled,
             bassBoostPercent = prefs.bassBoostPercent,
@@ -66,7 +70,9 @@ object DspAudioController {
     }
 
     fun applyDspState(
+        enabled: Boolean,
         gainsDb: List<Float>,
+        roomPlacement: RoomPlacement,
         preAmpDb: Float,
         limiterEnabled: Boolean,
         bassBoostPercent: Int,
@@ -74,38 +80,44 @@ object DspAudioController {
         virtualizerPercent: Int,
         loudnessPercent: Int
     ) {
-        val cutoffFreqs = floatArrayOf(
-            45f, 90f, 180f, 355f, 710f, 1400f, 2800f, 5600f, 11200f, 20000f
-        )
-        val bassExtraDb = (bassBoostPercent / 100f) * 6.0f
+        // 7 BES Band upper cutoff boundaries matching 60, 120, 250, 750, 2000, 5000, 15000 Hz
+        val cutoffFreqs = floatArrayOf(85f, 175f, 450f, 1250f, 3200f, 8500f, 20000f)
+        val bassExtraDb = (bassBoostPercent / 100f) * 5.0f
 
         for (sessionId in activeSessions) {
-            // 1. Modern Android 10-Band DynamicsProcessing (API 28+)
+            // 1. Android 7-Band DynamicsProcessing matched to Nirvana Luxe BES DSP
             runCatching {
                 val dp = dynamicsMap.getOrPut(sessionId) {
                     val cfg = DynamicsProcessing.Config.Builder(
                         DynamicsProcessing.VARIANT_FAVOR_FREQUENCY_RESOLUTION,
-                        2, // stereo channels
-                        true, // pre-EQ
-                        10,   // 10 pre-EQ bands
-                        false, // multi-band compressor
+                        2,
+                        true,
+                        7, // 7 native Nirvana Luxe bands
+                        false,
                         0,
-                        true, // post-EQ
-                        10,   // 10 post-EQ bands
-                        true  // anti-clipping limiter
+                        true,
+                        7,
+                        true
                     ).build()
-                    DynamicsProcessing(0, sessionId, cfg).apply { enabled = true }
+                    DynamicsProcessing(0, sessionId, cfg).apply { this.enabled = true }
                 }
 
-                dp.setInputGainAllChannelsTo(preAmpDb)
+                dp.setInputGainAllChannelsTo(if (enabled) preAmpDb else 0f)
 
-                for (b in 0 until 10) {
-                    val baseGain = gainsDb.getOrElse(b) { 0f }
-                    val centerHz = BoatDeviceCatalog.EQ_FREQUENCIES_HZ[b]
-                    val subBoost = if (centerHz <= subBassCutoffHz) bassExtraDb else if (centerHz <= 125) bassExtraDb * 0.5f else 0f
-                    val totalBandGain = (baseGain + subBoost).coerceIn(-15f, 15f)
+                for (b in 0 until 7) {
+                    val baseGain = if (enabled) gainsDb.getOrElse(b) { 0f } else 0f
+                    val centerHz = BoatDeviceCatalog.LUXE_EQ_FREQUENCIES_HZ[b]
+                    val roomOffset = when (b) {
+                        0, 1 -> roomPlacement.bassTiltDb
+                        2 -> roomPlacement.bassTiltDb * 0.4f
+                        5, 6 -> roomPlacement.trebleTiltDb
+                        else -> 0f
+                    }
+                    val subBoost = if (enabled && centerHz <= subBassCutoffHz) bassExtraDb
+                    else if (enabled && centerHz <= 120) bassExtraDb * 0.5f else 0f
 
-                    val band = DynamicsProcessing.EqBand(true, cutoffFreqs[b], totalBandGain)
+                    val totalGain = (baseGain + roomOffset + subBoost).coerceIn(-15f, 15f)
+                    val band = DynamicsProcessing.EqBand(enabled, cutoffFreqs[b], totalGain)
                     dp.setPreEqBandAllChannelsTo(b, band)
                     dp.setPostEqBandAllChannelsTo(b, DynamicsProcessing.EqBand(true, cutoffFreqs[b], 0f))
                 }
@@ -114,61 +126,61 @@ object DspAudioController {
                     true,
                     limiterEnabled,
                     0,
-                    1.0f,   // attack 1ms
-                    60.0f,  // release 60ms
-                    10.0f,  // 10:1 ratio
-                    -0.5f,  // threshold -0.5 dBFS
-                    0.0f    // post-gain 0 dB
+                    1.5f,
+                    70.0f,
+                    10.0f,
+                    -0.5f,
+                    0.0f
                 )
                 dp.setLimiterAllChannelsTo(limiter)
             }
 
-            // 2. Hardware/System Equalizer fallback & companion
+            // 2. Hardware/System Equalizer companion
             runCatching {
                 val eq = legacyEqMap.getOrPut(sessionId) {
-                    Equalizer(0, sessionId).apply { enabled = true }
+                    Equalizer(0, sessionId).apply { this.enabled = true }
                 }
                 val numBands = eq.numberOfBands.toInt()
                 val range = eq.bandLevelRange
                 val minLevel = range[0].toInt()
                 val maxLevel = range[1].toInt()
                 for (b in 0 until numBands) {
-                    val centerFreqHz = (eq.getCenterFreq(b.toShort()) / 1000).coerceAtLeast(20)
-                    val nearestIdx = BoatDeviceCatalog.EQ_FREQUENCIES_HZ.indices.minByOrNull { idx ->
-                        kotlin.math.abs(BoatDeviceCatalog.EQ_FREQUENCIES_HZ[idx] - centerFreqHz)
+                    val centerFreqHz = (eq.getCenterFreq(b.toShort()) / 1000).coerceAtLeast(30)
+                    val nearestIdx = BoatDeviceCatalog.LUXE_EQ_FREQUENCIES_HZ.indices.minByOrNull { idx ->
+                        kotlin.math.abs(BoatDeviceCatalog.LUXE_EQ_FREQUENCIES_HZ[idx] - centerFreqHz)
                     } ?: 0
-                    val db = gainsDb.getOrElse(nearestIdx) { 0f }
+                    val db = if (enabled) gainsDb.getOrElse(nearestIdx) { 0f } else 0f
                     val millibels = (db * 100f).roundToInt().coerceIn(minLevel, maxLevel).toShort()
                     eq.setBandLevel(b.toShort(), millibels)
                 }
             }
 
-            // 3. BassBoost (0..1000)
+            // 3. Passive Radiator BassBoost
             runCatching {
                 val bb = bassBoostMap.getOrPut(sessionId) {
-                    BassBoost(0, sessionId).apply { enabled = true }
+                    BassBoost(0, sessionId).apply { this.enabled = true }
                 }
                 if (bb.strengthSupported) {
-                    bb.setStrength((bassBoostPercent * 10).coerceIn(0, 1000).toShort())
+                    bb.setStrength((if (enabled) bassBoostPercent * 10 else 0).coerceIn(0, 1000).toShort())
                 }
             }
 
-            // 4. 360° Spatial Virtualizer (0..1000)
+            // 4. 360° Omnidirectional Virtualizer
             runCatching {
                 val virt = virtualizerMap.getOrPut(sessionId) {
-                    Virtualizer(0, sessionId).apply { enabled = true }
+                    Virtualizer(0, sessionId).apply { this.enabled = true }
                 }
                 if (virt.strengthSupported) {
-                    virt.setStrength((virtualizerPercent * 10).coerceIn(0, 1000).toShort())
+                    virt.setStrength((if (enabled) virtualizerPercent * 10 else 0).coerceIn(0, 1000).toShort())
                 }
             }
 
-            // 5. LoudnessEnhancer (0..1200 mB)
+            // 5. Party LoudnessEnhancer
             runCatching {
                 val le = loudnessMap.getOrPut(sessionId) {
-                    LoudnessEnhancer(sessionId).apply { enabled = true }
+                    LoudnessEnhancer(sessionId).apply { this.enabled = true }
                 }
-                le.setTargetGain((loudnessPercent * 12).coerceIn(0, 1200))
+                le.setTargetGain((if (enabled) loudnessPercent * 12 else 0).coerceIn(0, 1200))
             }
         }
     }
@@ -184,7 +196,7 @@ class DspAudioService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val prefs = AppPreferences(this)
-        val notification = buildNotification(prefs.selectedDeviceName, prefs.activePresetId)
+        val notification = buildNotification(prefs.activePresetId, prefs.soundMode.label)
         startForeground(NOTIFICATION_ID, notification)
         DspAudioController.applyFromPreferences(this)
         return START_STICKY
@@ -196,10 +208,10 @@ class DspAudioService : Service() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                "boAt Hearables Pro DSP Engine",
+                "boAt Nirvana Luxe DSP Studio",
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = "Active 10-band Custom EQ & Hearable Protocol Service"
+                description = "Active 7-Band BES Hardware EQ & Speaker Mastering Engine"
                 setShowBadge(false)
             }
             val nm = getSystemService(NotificationManager::class.java)
@@ -207,7 +219,7 @@ class DspAudioService : Service() {
         }
     }
 
-    private fun buildNotification(deviceName: String, presetId: String): Notification {
+    private fun buildNotification(presetId: String, soundModeLabel: String): Notification {
         val launchIntent = Intent(this, MainActivity::class.java)
         val pendingIntent = PendingIntent.getActivity(
             this,
@@ -222,8 +234,8 @@ class DspAudioService : Service() {
             Notification.Builder(this)
         }
         return builder
-            .setContentTitle("$deviceName • 10-Band DSP Active")
-            .setContentText("EQ Profile: ${presetId.uppercase()} • Zero-Ad Pro Engine")
+            .setContentTitle("boAt Nirvana Luxe • Speaker Studio Active")
+            .setContentText("$soundModeLabel • Profile: ${presetId.uppercase()}")
             .setSmallIcon(R.mipmap.ic_launcher)
             .setContentIntent(pendingIntent)
             .setOngoing(true)
@@ -231,7 +243,7 @@ class DspAudioService : Service() {
     }
 
     companion object {
-        private const val CHANNEL_ID = "boat_hearables_pro_dsp"
-        private const val NOTIFICATION_ID = 2401
+        private const val CHANNEL_ID = "boat_nirvana_luxe_dsp"
+        private const val NOTIFICATION_ID = 2402
     }
 }

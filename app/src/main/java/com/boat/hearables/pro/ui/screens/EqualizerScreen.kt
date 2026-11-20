@@ -6,7 +6,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,16 +21,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Equalizer
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.Save
-import androidx.compose.material.icons.filled.Speaker
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -70,7 +67,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.boat.hearables.pro.data.BoatDeviceCatalog
-import com.boat.hearables.pro.data.RoomAcoustics
+import com.boat.hearables.pro.data.RoomPlacement
 import com.boat.hearables.pro.viewmodel.HearablesUiState
 import com.boat.hearables.pro.viewmodel.HearablesViewModel
 import kotlin.math.roundToInt
@@ -92,20 +89,20 @@ fun EqualizerScreen(
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // 1. HEADER & HARDWARE + DSP SYNC BADGE
+        // 1. HEADER & BES 0x13 HARDWARE EQ SYNC
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column {
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "10-Band Custom Studio EQ",
+                    text = "Nirvana Luxe Custom EQ",
                     fontSize = 20.sp,
                     fontWeight = FontWeight.ExtraBold
                 )
                 Text(
-                    text = "Unlocked for ${uiState.selectedDevice.name} (${uiState.effectiveSdk.badge} + Android DSP)",
+                    text = "7-Band BES Hardware EQ (60Hz–15kHz • Opcode 0x13) + Speaker DSP",
                     fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -130,7 +127,7 @@ fun EqualizerScreen(
             }
         }
 
-        // 2. INTERACTIVE SPLINE FREQUENCY RESPONSE CURVE CANVAS
+        // 2. INTERACTIVE 7-BAND SPLINE FREQUENCY RESPONSE GRAPH + SLIDERS
         Card(
             shape = RoundedCornerShape(24.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -145,24 +142,34 @@ fun EqualizerScreen(
             Column(modifier = Modifier.padding(16.dp)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "SPLINE RESPONSE (TOUCH & DRAG CURVE)",
+                        text = "BES 7-BAND RESPONSE (DRAG CURVE OR BARS)",
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.primary
                     )
-                    Text(
-                        text = "Pre-Amp: ${"%+.1f".format(uiState.preAmpDb)} dB • Q: ${"%.2f".format(uiState.qFactor)}",
-                        fontSize = 11.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = if (uiState.hardwareEqEnabled) "EQ ON" else "BYPASS",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (uiState.hardwareEqEnabled) Color(0xFF00E676)
+                            else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Switch(
+                            checked = uiState.hardwareEqEnabled,
+                            onCheckedChange = { viewModel.setHardwareEqEnabled(it) }
+                        )
+                    }
                 }
 
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(6.dp))
 
-                SplineEqCurveCanvas(
+                SplineEqCurveCanvas7Band(
                     gainsDb = uiState.bandGainsDb,
                     primaryColor = MaterialTheme.colorScheme.primary,
                     secondaryColor = MaterialTheme.colorScheme.secondary,
@@ -174,16 +181,16 @@ fun EqualizerScreen(
                     }
                 )
 
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(14.dp))
 
-                // 3. 10-BAND INDIVIDUAL VERTICAL TOUCH COLUMNS & STEPPERS
+                // 7 NATIVE BES BANDS: 60Hz, 120Hz, 250Hz, 750Hz, 2kHz, 5kHz, 15kHz
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
+                    horizontalArrangement = Arrangement.SpaceAround
                 ) {
-                    BoatDeviceCatalog.EQ_LABELS.forEachIndexed { idx, freqLabel ->
+                    BoatDeviceCatalog.LUXE_EQ_LABELS.forEachIndexed { idx, freqLabel ->
                         val gain = uiState.bandGainsDb.getOrElse(idx) { 0f }
-                        VerticalBandColumn(
+                        VerticalBandColumn7(
                             freqLabel = freqLabel,
                             gainDb = gain,
                             accentColor = MaterialTheme.colorScheme.primary,
@@ -199,7 +206,7 @@ fun EqualizerScreen(
             }
         }
 
-        // 4. USER CUSTOM PROFILES & 14 UNLOCKED PRESETS
+        // 3. NIRVANA LUXE SOUND PROFILES & USER CUSTOM PRESETS
         Card(
             shape = RoundedCornerShape(22.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -211,17 +218,17 @@ fun EqualizerScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("Custom & Unlocked EQ Profiles", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                    Text("Nirvana Luxe Sound Profiles", fontSize = 16.sp, fontWeight = FontWeight.Bold)
                     TextButton(onClick = { showSaveDialog = true }) {
                         Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("New Custom")
+                        Text("Save Custom")
                     }
                 }
 
                 if (uiState.customPresets.isNotEmpty()) {
                     Text(
-                        text = "YOUR SAVED CUSTOM PROFILES",
+                        text = "YOUR CUSTOM NIRVANA LUXE PROFILES",
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.primary
@@ -269,7 +276,7 @@ fun EqualizerScreen(
                 }
 
                 Text(
-                    text = "UNLOCKED STUDIO & BOAT HARDWARE CURVES (14)",
+                    text = "SPEAKER-TUNED & STOCK BES PROFILES (12)",
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -290,7 +297,44 @@ fun EqualizerScreen(
             }
         }
 
-        // 5. MASTERING DSP RACK (BASS ENGINE, PRE-AMP, LIMITER, SPATIAL WIDTH, L/R BALANCE)
+        // 4. ROOM PLACEMENT ACOUSTIC COMPENSATION
+        Card(
+            shape = RoundedCornerShape(22.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(18.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Speaker Room Placement Calibration", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                        Text(
+                            text = uiState.roomPlacement.description,
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Icon(Icons.Default.Home, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    RoomPlacement.entries.forEach { place ->
+                        FilterChip(
+                            selected = uiState.roomPlacement == place,
+                            onClick = { viewModel.setRoomPlacement(place) },
+                            label = { Text(place.label, fontSize = 12.sp) }
+                        )
+                    }
+                }
+            }
+        }
+
+        // 5. NIRVANA LUXE PASSIVE RADIATOR & MASTERING DSP RACK
         Card(
             shape = RoundedCornerShape(22.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -306,123 +350,60 @@ fun EqualizerScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column {
-                        Text("Mastering DSP & Sub-Bass Engine", fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                        Text("Real-time Android DynamicsProcessing + Hardware Sync", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("Speaker Bass & Acoustic Mastering", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                        Text("Fine-tune passive radiator punch, 360° dispersion & woofer protection", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     Icon(Icons.Default.Tune, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                 }
 
-                // Pre-Amp Gain
                 DspSliderRow(
-                    title = "Pre-Amp Input Gain",
-                    valueText = "${"%+.1f".format(uiState.preAmpDb)} dB",
-                    value = uiState.preAmpDb,
-                    valueRange = -12f..12f,
-                    onValueChange = { viewModel.updatePreAmp(it) }
-                )
-
-                // Parametric Q-Factor
-                DspSliderRow(
-                    title = "Parametric Bandwidth (Q-Factor)",
-                    valueText = "${"%.2f".format(uiState.qFactor)} Q",
-                    value = uiState.qFactor,
-                    valueRange = 0.5f..4.0f,
-                    onValueChange = { viewModel.updateQFactor(it) }
-                )
-
-                // Dynamic Bass Engine
-                DspSliderRow(
-                    title = "Dynamic Sub-Bass Punch",
+                    title = "Passive Radiator Sub-Bass Punch",
                     valueText = "${uiState.bassBoostPercent}%",
                     value = uiState.bassBoostPercent.toFloat(),
                     valueRange = 0f..100f,
                     onValueChange = { viewModel.updateBassBoost(it.roundToInt()) }
                 )
 
-                // Sub-Bass Crossover Frequency
                 DspSliderRow(
-                    title = "Sub-Bass Punch Crossover",
+                    title = "Sub-Bass Crossover Frequency",
                     valueText = "${uiState.subBassCutoffHz} Hz",
                     value = uiState.subBassCutoffHz.toFloat(),
-                    valueRange = 40f..120f,
+                    valueRange = 45f..120f,
                     onValueChange = { viewModel.updateSubBassCutoff(it.roundToInt()) }
                 )
 
-                // 360° Stereo Widener / Virtualizer
                 DspSliderRow(
-                    title = "360° Soundstage Widener",
+                    title = "360° Room Soundstage Widener",
                     valueText = "${uiState.virtualizerPercent}%",
                     value = uiState.virtualizerPercent.toFloat(),
                     valueRange = 0f..100f,
                     onValueChange = { viewModel.updateVirtualizer(it.roundToInt()) }
                 )
 
-                // Loudness Enhancer
                 DspSliderRow(
-                    title = "Loudness Enhancer (Quiet Track Boost)",
+                    title = "Party Volume & Loudness Enhancer",
                     valueText = "+${(uiState.loudnessPercent * 0.12f).roundToInt()} dB (${uiState.loudnessPercent}%)",
                     value = uiState.loudnessPercent.toFloat(),
                     valueRange = 0f..100f,
                     onValueChange = { viewModel.updateLoudness(it.roundToInt()) }
                 )
 
-                // Left / Right Channel Balance
-                Column {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text("L / R Driver Balance", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            val balLabel = when {
-                                uiState.channelBalance < 0 -> "L +${-uiState.channelBalance}%"
-                                uiState.channelBalance > 0 -> "R +${uiState.channelBalance}%"
-                                else -> "Center (0%)"
-                            }
-                            Text(balLabel, fontSize = 12.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
-                            if (uiState.channelBalance != 0) {
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = "Reset",
-                                    fontSize = 11.sp,
-                                    color = MaterialTheme.colorScheme.secondary,
-                                    modifier = Modifier.clickable { viewModel.updateChannelBalance(0) }
-                                )
-                            }
-                        }
-                    }
-                    Slider(
-                        value = uiState.channelBalance.toFloat(),
-                        onValueChange = { viewModel.updateChannelBalance(it.roundToInt()) },
-                        valueRange = -100f..100f
-                    )
-                }
+                DspSliderRow(
+                    title = "Pre-Amp Headroom Gain",
+                    valueText = "${"%+.1f".format(uiState.preAmpDb)} dB",
+                    value = uiState.preAmpDb,
+                    valueRange = -12f..12f,
+                    onValueChange = { viewModel.updatePreAmp(it) }
+                )
 
-                // Room Acoustics Environment
-                Column {
-                    Text("Acoustic Environment Simulation", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                    Spacer(modifier = Modifier.height(6.dp))
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        RoomAcoustics.entries.forEach { room ->
-                            FilterChip(
-                                selected = uiState.roomAcoustics == room,
-                                onClick = { viewModel.updateRoomAcoustics(room) },
-                                label = { Text(room.label, fontSize = 11.sp) }
-                            )
-                        }
-                    }
-                }
-
-                // Anti-Clip Brickwall Limiter Toggle
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text("Brickwall Anti-Clipping Limiter (-0.5 dBFS)", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                        Text("Prevents bass distortion when bands are boosted up to +12 dB", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("Woofer Excursion & Anti-Clipping Limiter", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        Text("Protects Nirvana Luxe speaker driver from distortion at 90–100% volume", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     Switch(
                         checked = uiState.limiterEnabled,
@@ -438,11 +419,11 @@ fun EqualizerScreen(
     if (showSaveDialog) {
         AlertDialog(
             onDismissRequest = { showSaveDialog = false },
-            title = { Text("Save Custom 10-Band EQ Profile", fontWeight = FontWeight.Bold) },
+            title = { Text("Save Custom Nirvana Luxe EQ Profile", fontWeight = FontWeight.Bold) },
             text = {
                 Column {
                     Text(
-                        "Give your custom curve a name. You can also bind it to auto-apply whenever ${uiState.selectedDevice.name} connects.",
+                        "Save your custom 7-band curve (60Hz–15kHz). You can also set it to auto-apply whenever boAt Nirvana Luxe connects.",
                         fontSize = 13.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -450,7 +431,7 @@ fun EqualizerScreen(
                     OutlinedTextField(
                         value = customProfileName,
                         onValueChange = { customProfileName = it },
-                        placeholder = { Text("e.g., My Nirvana Bass + Vocal") },
+                        placeholder = { Text("e.g., Living Room Deep Bass") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -477,7 +458,7 @@ fun EqualizerScreen(
 }
 
 @Composable
-private fun SplineEqCurveCanvas(
+private fun SplineEqCurveCanvas7Band(
     gainsDb: List<Float>,
     primaryColor: Color,
     secondaryColor: Color,
@@ -485,6 +466,7 @@ private fun SplineEqCurveCanvas(
 ) {
     val gridColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)
     val zeroLineColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f)
+    val bandCount = 7
 
     Box(
         modifier = Modifier
@@ -494,7 +476,6 @@ private fun SplineEqCurveCanvas(
             .background(Color(0xFF080A0F))
             .pointerInput(Unit) {
                 detectTapGestures { offset ->
-                    val bandCount = 10
                     val stepX = size.width.toFloat() / bandCount
                     val bandIdx = (offset.x / stepX).toInt().coerceIn(0, bandCount - 1)
                     val normalizedY = 1f - (offset.y / size.height.toFloat()).coerceIn(0f, 1f)
@@ -505,7 +486,6 @@ private fun SplineEqCurveCanvas(
             .pointerInput(Unit) {
                 detectDragGestures { change, _ ->
                     change.consume()
-                    val bandCount = 10
                     val stepX = size.width.toFloat() / bandCount
                     val bandIdx = (change.position.x / stepX).toInt().coerceIn(0, bandCount - 1)
                     val normalizedY = 1f - (change.position.y / size.height.toFloat()).coerceIn(0f, 1f)
@@ -514,12 +494,11 @@ private fun SplineEqCurveCanvas(
                 }
             }
     ) {
-        Canvas(modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 14.dp)) {
+        Canvas(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 14.dp)) {
             val w = size.width
             val h = size.height
             val midY = h / 2f
 
-            // Horizontal dB reference lines (+12, +6, 0, -6, -12 dB)
             listOf(0f, 0.25f, 0.5f, 0.75f, 1f).forEach { frac ->
                 val y = h * frac
                 drawLine(
@@ -530,14 +509,13 @@ private fun SplineEqCurveCanvas(
                 )
             }
 
-            val points = List(10) { idx ->
-                val x = (idx / 9f) * w
+            val points = List(bandCount) { idx ->
+                val x = (idx / (bandCount - 1f)) * w
                 val db = gainsDb.getOrElse(idx) { 0f }.coerceIn(-12f, 12f)
                 val y = midY - (db / 12f) * midY
                 Offset(x, y)
             }
 
-            // Vertical band grid lines
             points.forEach { pt ->
                 drawLine(
                     color = gridColor,
@@ -547,7 +525,6 @@ private fun SplineEqCurveCanvas(
                 )
             }
 
-            // Smooth cubic spline path through the 10 band points
             val curvePath = Path()
             val fillPath = Path()
             if (points.isNotEmpty()) {
@@ -583,16 +560,15 @@ private fun SplineEqCurveCanvas(
                 style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round)
             )
 
-            // Draw control nodes
             points.forEach { pt ->
                 drawCircle(
                     color = Color(0xFF080A0F),
-                    radius = 6.dp.toPx(),
+                    radius = 6.5.dp.toPx(),
                     center = pt
                 )
                 drawCircle(
                     color = primaryColor,
-                    radius = 4.5.dp.toPx(),
+                    radius = 5.dp.toPx(),
                     center = pt
                 )
             }
@@ -601,7 +577,7 @@ private fun SplineEqCurveCanvas(
 }
 
 @Composable
-private fun VerticalBandColumn(
+private fun VerticalBandColumn7(
     freqLabel: String,
     gainDb: Float,
     accentColor: Color,
@@ -609,23 +585,22 @@ private fun VerticalBandColumn(
 ) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier.width(30.dp)
+        modifier = Modifier.width(42.dp)
     ) {
         Text(
-            text = "%+.0f".format(gainDb),
-            fontSize = 10.sp,
+            text = "%+.1f".format(gainDb),
+            fontSize = 11.sp,
             fontWeight = FontWeight.Bold,
             color = if (gainDb != 0f) accentColor else MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center
         )
-        Spacer(modifier = Modifier.height(4.dp))
+        Spacer(modifier = Modifier.height(6.dp))
 
-        // Vertical drag bar
         Box(
             modifier = Modifier
-                .width(18.dp)
-                .height(132.dp)
-                .clip(RoundedCornerShape(9.dp))
+                .width(24.dp)
+                .height(138.dp)
+                .clip(RoundedCornerShape(12.dp))
                 .background(MaterialTheme.colorScheme.surfaceVariant)
                 .pointerInput(Unit) {
                     detectTapGestures { offset ->
@@ -657,11 +632,11 @@ private fun VerticalBandColumn(
             )
         }
 
-        Spacer(modifier = Modifier.height(4.dp))
+        Spacer(modifier = Modifier.height(6.dp))
         Text(
             text = freqLabel,
-            fontSize = 10.sp,
-            fontWeight = FontWeight.SemiBold,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center
         )

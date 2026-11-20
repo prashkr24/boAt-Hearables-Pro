@@ -11,6 +11,10 @@ import com.boat.hearables.pro.data.AppPreferences
 import com.boat.hearables.pro.data.BoatDeviceCatalog
 import kotlin.math.roundToInt
 
+/**
+ * Listens for AudioEffect sessions and Bluetooth ACL events,
+ * strictly reacting ONLY when the connected device is `boAt Nirvana Luxe`.
+ */
 class AudioSessionReceiver : BroadcastReceiver() {
 
     @SuppressLint("MissingPermission")
@@ -25,21 +29,24 @@ class AudioSessionReceiver : BroadcastReceiver() {
                 DspAudioController.unregisterAudioSession(sessionId)
             }
             BluetoothDevice.ACTION_ACL_CONNECTED -> {
-                val prefs = AppPreferences(context)
                 @Suppress("DEPRECATION")
                 val device = intent.getParcelableExtra<BluetoothDevice>(BluetoothDevice.EXTRA_DEVICE)
-                val btName = runCatching { device?.name }.getOrNull() ?: prefs.selectedDeviceName
-                val autoProfile = prefs.getAutoProfile(btName)
+                val btName = runCatching { device?.name }.getOrNull()
+                // STRICT CHECK: Ignore all other Bluetooth devices; only trigger for boAt Nirvana Luxe
+                if (!BoatDeviceCatalog.isNirvanaLuxeSpeaker(btName)) return
+
+                val prefs = AppPreferences(context)
+                prefs.lastKnownLuxeMac = runCatching { device?.address }.getOrNull()
+                val autoProfile = prefs.getAutoProfile()
                 if (autoProfile.enabled) {
                     val allPresets = BoatDeviceCatalog.BUILT_IN_PRESETS + prefs.getCustomPresets()
                     allPresets.firstOrNull { it.id == autoProfile.eqPresetId }?.let { preset ->
                         prefs.activePresetId = preset.id
                         prefs.currentBandGains = preset.gainsDb
                     }
-                    prefs.ancMode = autoProfile.ancMode
-                    prefs.beastMode = autoProfile.beastMode
+                    prefs.soundMode = autoProfile.soundMode
+                    prefs.ledMode = autoProfile.ledMode
 
-                    // Apply target media volume if configured
                     runCatching {
                         val am = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
                         if (am != null) {

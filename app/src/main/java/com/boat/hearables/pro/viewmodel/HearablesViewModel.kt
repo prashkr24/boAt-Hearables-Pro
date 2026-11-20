@@ -1,100 +1,98 @@
 package com.boat.hearables.pro.viewmodel
 
 import android.app.Application
+import android.content.Context
 import android.content.Intent
+import android.media.AudioManager
 import android.os.Build
 import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
 import com.boat.hearables.pro.audio.AcousticTestGenerator
 import com.boat.hearables.pro.audio.DspAudioController
 import com.boat.hearables.pro.audio.DspAudioService
 import com.boat.hearables.pro.audio.OutputChannel
 import com.boat.hearables.pro.data.AccentTheme
-import com.boat.hearables.pro.data.AncLevel
-import com.boat.hearables.pro.data.AncMode
 import com.boat.hearables.pro.data.AppPreferences
 import com.boat.hearables.pro.data.BoatDeviceCatalog
-import com.boat.hearables.pro.data.BoatDeviceSpec
-import com.boat.hearables.pro.data.ChipsetSdk
-import com.boat.hearables.pro.data.DeviceAutoProfile
 import com.boat.hearables.pro.data.EqPreset
-import com.boat.hearables.pro.data.RoomAcoustics
-import com.boat.hearables.pro.data.SpatialMode
-import com.boat.hearables.pro.data.TouchAction
-import com.boat.hearables.pro.data.TouchGesture
+import com.boat.hearables.pro.data.LuxeAutoProfile
+import com.boat.hearables.pro.data.LuxeLedMode
+import com.boat.hearables.pro.data.LuxeSoundMode
+import com.boat.hearables.pro.data.RoomPlacement
 import com.boat.hearables.pro.protocol.HearableProtocolEngine
-import com.boat.hearables.pro.protocol.LiveTelemetry
-import com.boat.hearables.pro.protocol.PairedBtDevice
+import com.boat.hearables.pro.protocol.LuxeSpeakerTelemetry
 import com.boat.hearables.pro.protocol.ProtocolPacketLog
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import java.util.UUID
+import kotlin.math.roundToInt
 
 data class HearablesUiState(
-    val selectedDevice: BoatDeviceSpec = BoatDeviceCatalog.DEVICES.first(),
-    val chipsetOverride: ChipsetSdk? = null,
-    val effectiveSdk: ChipsetSdk = BoatDeviceCatalog.DEVICES.first().sdk,
-    val activePresetId: String = "boat_signature",
+    val activePresetId: String = "luxe_signature",
+    // 7 native BES hardware bands: 60Hz, 120Hz, 250Hz, 750Hz, 2kHz, 5kHz, 15kHz
     val bandGainsDb: List<Float> = BoatDeviceCatalog.BUILT_IN_PRESETS.first().gainsDb,
     val customPresets: List<EqPreset> = emptyList(),
+    val hardwareEqEnabled: Boolean = true,
+    val soundMode: LuxeSoundMode = LuxeSoundMode.SIGNATURE_SOUND,
+    val ledMode: LuxeLedMode = LuxeLedMode.MODE_ONE,
+    val roomPlacement: RoomPlacement = RoomPlacement.FREE_STANDING,
+    val broadcastPartySync: Boolean = false,
+    val multipointEnabled: Boolean = true,
+    val batteryBoosterEnabled: Boolean = false,
     val preAmpDb: Float = 0f,
     val qFactor: Float = 1.41f,
     val limiterEnabled: Boolean = true,
-    val bassBoostPercent: Int = 25,
-    val subBassCutoffHz: Int = 65,
-    val virtualizerPercent: Int = 20,
-    val loudnessPercent: Int = 0,
-    val channelBalance: Int = 0,
-    val roomAcoustics: RoomAcoustics = RoomAcoustics.OFF,
-    val ancMode: AncMode = AncMode.ANC_ON,
-    val ancLevel: AncLevel = AncLevel.HIGH,
-    val antiWindNoise: Boolean = true,
-    val beastMode: Boolean = false,
-    val spatialMode: SpatialMode = SpatialMode.OFF,
-    val inEarDetection: Boolean = true,
-    val multipointEnabled: Boolean = true,
-    val smartTalkEnabled: Boolean = false,
-    val bedTouchLock: Boolean = false,
-    val touchMappings: Map<TouchGesture, TouchAction> = emptyMap(),
-    val autoProfile: DeviceAutoProfile = DeviceAutoProfile("Nirvana Ivy Pro"),
-    val accentTheme: AccentTheme = AccentTheme.BOAT_CRIMSON,
+    val bassBoostPercent: Int = 30,
+    val subBassCutoffHz: Int = 70,
+    val virtualizerPercent: Int = 25,
+    val loudnessPercent: Int = 15,
+    val speakerVolumePercent: Int = 65,
+    val sleepTimerMinutesRemaining: Int = 0,
+    val autoProfile: LuxeAutoProfile = LuxeAutoProfile(),
+    val accentTheme: AccentTheme = AccentTheme.LUXE_GOLD,
     val oledPitchBlack: Boolean = true,
     val hapticSliders: Boolean = true,
-    val lowBatteryAlertPercent: Int = 20,
     val activeAcousticTest: String? = null,
-    val testFrequencyHz: Float = 440f,
-    val sealTestStatus: String = "Ready — put both earbuds in and press Run Seal Test"
+    val testFrequencyHz: Float = 65f
 )
 
 class HearablesViewModel(application: Application) : AndroidViewModel(application) {
 
     private val appContext = application.applicationContext
     private val prefs = AppPreferences(appContext)
+    private val audioManager = appContext.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
     val protocolEngine = HearableProtocolEngine(appContext)
     private val acousticGenerator = AcousticTestGenerator()
+
+    private var sleepTimerJob: Job? = null
 
     private val _uiState = MutableStateFlow(loadInitialState())
     val uiState: StateFlow<HearablesUiState> = _uiState.asStateFlow()
 
-    val pairedDevices: StateFlow<List<PairedBtDevice>> = protocolEngine.pairedDevices
-    val telemetry: StateFlow<LiveTelemetry> = protocolEngine.telemetry
+    val telemetry: StateFlow<LuxeSpeakerTelemetry> = protocolEngine.telemetry
     val packetLogs: StateFlow<List<ProtocolPacketLog>> = protocolEngine.packetLogs
 
     init {
         DspAudioController.applyFromPreferences(appContext)
-        refreshBluetoothState()
+        refreshNirvanaLuxeConnection()
     }
 
     private fun loadInitialState(): HearablesUiState {
-        val spec = BoatDeviceCatalog.resolveDeviceSpec(prefs.selectedDeviceName)
-        val overrideSdk = prefs.chipsetOverride
         return HearablesUiState(
-            selectedDevice = spec,
-            chipsetOverride = overrideSdk,
-            effectiveSdk = overrideSdk ?: spec.sdk,
             activePresetId = prefs.activePresetId,
             bandGainsDb = prefs.currentBandGains,
             customPresets = prefs.getCustomPresets(),
+            hardwareEqEnabled = prefs.hardwareEqEnabled,
+            soundMode = prefs.soundMode,
+            ledMode = prefs.ledMode,
+            roomPlacement = prefs.roomPlacement,
+            broadcastPartySync = prefs.broadcastPartySync,
+            multipointEnabled = prefs.multipointEnabled,
+            batteryBoosterEnabled = prefs.batteryBoosterEnabled,
             preAmpDb = prefs.preAmpDb,
             qFactor = prefs.qFactor,
             limiterEnabled = prefs.limiterEnabled,
@@ -102,60 +100,117 @@ class HearablesViewModel(application: Application) : AndroidViewModel(applicatio
             subBassCutoffHz = prefs.subBassCutoffHz,
             virtualizerPercent = prefs.virtualizerPercent,
             loudnessPercent = prefs.loudnessPercent,
-            channelBalance = prefs.channelBalance,
-            roomAcoustics = prefs.roomAcoustics,
-            ancMode = prefs.ancMode,
-            ancLevel = prefs.ancLevel,
-            antiWindNoise = prefs.antiWindNoise,
-            beastMode = prefs.beastMode,
-            spatialMode = prefs.spatialMode,
-            inEarDetection = prefs.inEarDetection,
-            multipointEnabled = prefs.multipointEnabled,
-            smartTalkEnabled = prefs.smartTalkEnabled,
-            bedTouchLock = prefs.bedTouchLock,
-            touchMappings = prefs.getTouchMappings(),
-            autoProfile = prefs.getAutoProfile(spec.name),
+            speakerVolumePercent = readCurrentSystemVolumePercent(),
+            autoProfile = prefs.getAutoProfile(),
             accentTheme = prefs.accentTheme,
             oledPitchBlack = prefs.oledPitchBlack,
-            hapticSliders = prefs.hapticSliders,
-            lowBatteryAlertPercent = prefs.lowBatteryAlertPercent
+            hapticSliders = prefs.hapticSliders
         )
     }
 
-    fun refreshBluetoothState() {
-        val bonded = protocolEngine.refreshPairedDevices()
-        val connectedBt = bonded.firstOrNull { it.isConnected }
-        if (connectedBt != null) {
-            selectDeviceModel(connectedBt.name, connectedBt.address)
+    private fun readCurrentSystemVolumePercent(): Int {
+        val am = audioManager ?: return 65
+        val max = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
+        val cur = am.getStreamVolume(AudioManager.STREAM_MUSIC)
+        return ((cur.toFloat() / max.toFloat()) * 100f).roundToInt().coerceIn(0, 100)
+    }
+
+    fun setSpeakerVolumePercent(percent: Int) {
+        val clamped = percent.coerceIn(0, 100)
+        _uiState.value = _uiState.value.copy(speakerVolumePercent = clamped)
+        runCatching {
+            val am = audioManager ?: return@runCatching
+            val max = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+            val target = ((clamped / 100f) * max).roundToInt()
+            am.setStreamVolume(AudioManager.STREAM_MUSIC, target, 0)
         }
     }
 
-    fun selectDeviceModel(deviceName: String, btAddress: String? = null) {
-        prefs.selectedDeviceName = deviceName
-        val spec = BoatDeviceCatalog.resolveDeviceSpec(deviceName)
-        val sdk = _uiState.value.chipsetOverride ?: spec.sdk
-        _uiState.value = _uiState.value.copy(
-            selectedDevice = spec,
-            effectiveSdk = sdk,
-            autoProfile = prefs.getAutoProfile(spec.name)
-        )
-        if (btAddress != null) {
-            protocolEngine.connectToDevice(btAddress, sdk)
+    /**
+     * Checks paired Bluetooth devices strictly for `boAt Nirvana Luxe` and connects to it.
+     */
+    fun refreshNirvanaLuxeConnection() {
+        _uiState.value = _uiState.value.copy(speakerVolumePercent = readCurrentSystemVolumePercent())
+        protocolEngine.detectAndConnectNirvanaLuxe()
+    }
+
+    /**
+     * Triggers active Bluetooth scan & connection exclusively for `boAt Nirvana Luxe`.
+     */
+    fun scanAndConnectNirvanaLuxe() {
+        protocolEngine.connectToNirvanaLuxe()
+    }
+
+    // =========================================================================
+    // NIRVANA LUXE SOUND MODES, LED LIGHT SHOW & HARDWARE FEATURES
+    // =========================================================================
+
+    fun setSoundMode(mode: LuxeSoundMode) {
+        prefs.soundMode = mode
+        _uiState.value = _uiState.value.copy(soundMode = mode)
+        protocolEngine.sendLuxeSoundMode(mode)
+
+        // Synchronize DSP spatial/loudness characteristics for Outdoor Party & Late Night modes
+        when (mode) {
+            LuxeSoundMode.SPATIAL_360 -> updateVirtualizer(75)
+            LuxeSoundMode.SPATIAL_CINEMA -> updateVirtualizer(55)
+            LuxeSoundMode.OUTDOOR_PARTY -> {
+                updateLoudness(55)
+                updateBassBoost(65)
+            }
+            LuxeSoundMode.LATE_NIGHT -> {
+                updateLoudness(10)
+                updateBassBoost(10)
+                updateLimiter(true)
+            }
+            LuxeSoundMode.SIGNATURE_SOUND -> {
+                updateVirtualizer(20)
+            }
         }
     }
 
-    fun setChipsetOverride(sdk: ChipsetSdk?) {
-        prefs.chipsetOverride = sdk
-        val effective = sdk ?: _uiState.value.selectedDevice.sdk
-        _uiState.value = _uiState.value.copy(
-            chipsetOverride = sdk,
-            effectiveSdk = effective
-        )
+    fun setLedMode(mode: LuxeLedMode) {
+        prefs.ledMode = mode
+        _uiState.value = _uiState.value.copy(ledMode = mode)
+        protocolEngine.sendLuxeLedMode(mode)
+    }
+
+    fun setRoomPlacement(placement: RoomPlacement) {
+        prefs.roomPlacement = placement
+        _uiState.value = _uiState.value.copy(roomPlacement = placement)
+        syncDspAndHardwareEq(_uiState.value.bandGainsDb)
+    }
+
+    fun setBroadcastPartySync(enabled: Boolean) {
+        prefs.broadcastPartySync = enabled
+        _uiState.value = _uiState.value.copy(broadcastPartySync = enabled)
+        protocolEngine.sendLuxeBroadcastPartySync(enabled)
+    }
+
+    fun setMultipoint(enabled: Boolean) {
+        prefs.multipointEnabled = enabled
+        _uiState.value = _uiState.value.copy(multipointEnabled = enabled)
+        protocolEngine.sendLuxeMultipoint(enabled)
+    }
+
+    fun setBatteryBooster(enabled: Boolean) {
+        prefs.batteryBoosterEnabled = enabled
+        _uiState.value = _uiState.value.copy(batteryBoosterEnabled = enabled)
+        if (enabled) {
+            // Battery Booster automatically turns off LEDs and optimizes sub-bass draw (matching Lwh0.z)
+            setLedMode(LuxeLedMode.OFF)
+        }
     }
 
     // =========================================================================
-    // 10-BAND CUSTOM EQUALIZER & DSP ACTIONS
+    // 7-BAND BES HARDWARE EQUALIZER + DSP MASTERING ACTIONS
     // =========================================================================
+
+    fun setHardwareEqEnabled(enabled: Boolean) {
+        prefs.hardwareEqEnabled = enabled
+        _uiState.value = _uiState.value.copy(hardwareEqEnabled = enabled)
+        syncDspAndHardwareEq(_uiState.value.bandGainsDb)
+    }
 
     fun updateSingleBandGain(bandIndex: Int, gainDb: Float) {
         val clamped = gainDb.coerceIn(-12f, 12f)
@@ -182,20 +237,20 @@ class HearablesViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun flattenEq() {
-        val flat = List(10) { 0f }
-        prefs.activePresetId = "flat"
+        val flat = List(7) { 0f }
+        prefs.activePresetId = "flat_studio"
         prefs.currentBandGains = flat
         _uiState.value = _uiState.value.copy(
-            activePresetId = "flat",
+            activePresetId = "flat_studio",
             bandGainsDb = flat
         )
         syncDspAndHardwareEq(flat)
     }
 
-    fun saveCurrentAsCustomPreset(name: String, subtitle: String = "Custom 10-Band Profile") {
-        val cleanName = name.trim().ifEmpty { "My Custom EQ ${_uiState.value.customPresets.size + 1}" }
+    fun saveCurrentAsCustomPreset(name: String, subtitle: String = "Custom Nirvana Luxe 7-Band Profile") {
+        val cleanName = name.trim().ifEmpty { "My Luxe Profile ${_uiState.value.customPresets.size + 1}" }
         val newPreset = EqPreset(
-            id = "custom_${UUID.randomUUID().toString().take(8)}",
+            id = "luxe_custom_${UUID.randomUUID().toString().take(8)}",
             name = cleanName,
             subtitle = subtitle,
             gainsDb = _uiState.value.bandGainsDb,
@@ -222,12 +277,6 @@ class HearablesViewModel(application: Application) : AndroidViewModel(applicatio
         DspAudioController.applyFromPreferences(appContext)
     }
 
-    fun updateQFactor(q: Float) {
-        prefs.qFactor = q
-        _uiState.value = _uiState.value.copy(qFactor = q)
-        DspAudioController.applyFromPreferences(appContext)
-    }
-
     fun updateLimiter(enabled: Boolean) {
         prefs.limiterEnabled = enabled
         _uiState.value = _uiState.value.copy(limiterEnabled = enabled)
@@ -238,7 +287,6 @@ class HearablesViewModel(application: Application) : AndroidViewModel(applicatio
         prefs.bassBoostPercent = percent
         _uiState.value = _uiState.value.copy(bassBoostPercent = percent)
         DspAudioController.applyFromPreferences(appContext)
-        protocolEngine.sendBassEngine(_uiState.value.effectiveSdk, percent > 0, percent)
     }
 
     fun updateSubBassCutoff(hz: Int) {
@@ -259,135 +307,44 @@ class HearablesViewModel(application: Application) : AndroidViewModel(applicatio
         DspAudioController.applyFromPreferences(appContext)
     }
 
-    fun updateChannelBalance(balance: Int) {
-        prefs.channelBalance = balance
-        _uiState.value = _uiState.value.copy(channelBalance = balance)
-    }
-
-    fun updateRoomAcoustics(room: RoomAcoustics) {
-        prefs.roomAcoustics = room
-        _uiState.value = _uiState.value.copy(roomAcoustics = room)
-    }
-
     private fun syncDspAndHardwareEq(gainsDb: List<Float>) {
         DspAudioController.applyFromPreferences(appContext)
-        protocolEngine.sendCustomEq(_uiState.value.effectiveSdk, gainsDb)
-    }
-
-    // =========================================================================
-    // HARDWARE COCKPIT CONTROLS (ANC, BEAST MODE, SPATIAL, MULTIPOINT, IN-EAR)
-    // =========================================================================
-
-    fun setAncMode(mode: AncMode) {
-        prefs.ancMode = mode
-        _uiState.value = _uiState.value.copy(ancMode = mode)
-        protocolEngine.sendAncControl(
-            _uiState.value.effectiveSdk,
-            mode,
-            _uiState.value.ancLevel,
-            _uiState.value.antiWindNoise
+        protocolEngine.sendLuxe7BandCustomEq(
+            gainsDb = gainsDb,
+            roomPlacement = _uiState.value.roomPlacement,
+            enabled = _uiState.value.hardwareEqEnabled
         )
     }
 
-    fun setAncLevel(level: AncLevel) {
-        prefs.ancLevel = level
-        _uiState.value = _uiState.value.copy(ancLevel = level)
-        protocolEngine.sendAncControl(
-            _uiState.value.effectiveSdk,
-            _uiState.value.ancMode,
-            level,
-            _uiState.value.antiWindNoise
-        )
-    }
-
-    fun setAntiWindNoise(enabled: Boolean) {
-        prefs.antiWindNoise = enabled
-        _uiState.value = _uiState.value.copy(antiWindNoise = enabled)
-        protocolEngine.sendAncControl(
-            _uiState.value.effectiveSdk,
-            _uiState.value.ancMode,
-            _uiState.value.ancLevel,
-            enabled
-        )
-    }
-
-    fun setBeastMode(enabled: Boolean) {
-        prefs.beastMode = enabled
-        _uiState.value = _uiState.value.copy(beastMode = enabled)
-        protocolEngine.sendBeastMode(_uiState.value.effectiveSdk, enabled)
-    }
-
-    fun setSpatialMode(mode: SpatialMode) {
-        prefs.spatialMode = mode
-        _uiState.value = _uiState.value.copy(spatialMode = mode)
-        protocolEngine.sendSpatialMode(_uiState.value.effectiveSdk, mode)
-    }
-
-    fun setInEarDetection(enabled: Boolean) {
-        prefs.inEarDetection = enabled
-        _uiState.value = _uiState.value.copy(inEarDetection = enabled)
-        protocolEngine.sendInEarDetection(_uiState.value.effectiveSdk, enabled)
-    }
-
-    fun setMultipoint(enabled: Boolean) {
-        prefs.multipointEnabled = enabled
-        _uiState.value = _uiState.value.copy(multipointEnabled = enabled)
-        protocolEngine.sendMultipoint(_uiState.value.effectiveSdk, enabled)
-    }
-
-    fun setSmartTalk(enabled: Boolean) {
-        prefs.smartTalkEnabled = enabled
-        _uiState.value = _uiState.value.copy(smartTalkEnabled = enabled)
-    }
-
     // =========================================================================
-    // TOUCH GESTURE REMAPPER & PER-DEVICE AUTOMATION
+    // AUTO-CONNECT PROFILE, SLEEP TIMER & SPEAKER ACOUSTIC LAB
     // =========================================================================
 
-    fun updateTouchMapping(gesture: TouchGesture, action: TouchAction) {
-        prefs.setTouchMapping(gesture, action)
-        val updated = prefs.getTouchMappings()
-        _uiState.value = _uiState.value.copy(touchMappings = updated)
-        protocolEngine.sendTouchKeyMapping(_uiState.value.effectiveSdk, gesture, action)
-    }
-
-    fun setBedTouchLock(locked: Boolean) {
-        prefs.bedTouchLock = locked
-        _uiState.value = _uiState.value.copy(bedTouchLock = locked)
-        val mappings = _uiState.value.touchMappings
-        TouchGesture.entries.forEach { g ->
-            val act = if (locked && (g.gestureName.contains("Single") || g.gestureName.contains("Double"))) {
-                TouchAction.DISABLED
-            } else {
-                mappings[g] ?: TouchAction.PLAY_PAUSE
-            }
-            protocolEngine.sendTouchKeyMapping(_uiState.value.effectiveSdk, g, act)
-        }
-    }
-
-    fun saveAutoProfile(profile: DeviceAutoProfile) {
+    fun saveAutoProfile(profile: LuxeAutoProfile) {
         prefs.saveAutoProfile(profile)
         _uiState.value = _uiState.value.copy(autoProfile = profile)
     }
 
-    // =========================================================================
-    // LAB, FIND MY BUDS & ACOUSTIC DIAGNOSTICS
-    // =========================================================================
+    fun setSleepTimerMinutes(minutes: Int) {
+        sleepTimerJob?.cancel()
+        _uiState.value = _uiState.value.copy(sleepTimerMinutesRemaining = minutes)
+        if (minutes <= 0) return
 
-    fun triggerFindMyBuds(channel: OutputChannel) {
-        val tag = "FIND_${channel.name}"
-        if (_uiState.value.activeAcousticTest == tag) {
-            stopAcousticTest()
-            protocolEngine.sendFindMyBudsCommand(_uiState.value.effectiveSdk, false)
-        } else {
-            _uiState.value = _uiState.value.copy(activeAcousticTest = tag)
-            protocolEngine.sendFindMyBudsCommand(_uiState.value.effectiveSdk, true)
-            acousticGenerator.playFindMyBudsChirp(channel)
+        sleepTimerJob = viewModelScope.launch {
+            var remaining = minutes
+            while (remaining > 0) {
+                delay(60_000L)
+                remaining--
+                _uiState.value = _uiState.value.copy(sleepTimerMinutesRemaining = remaining)
+            }
+            // Fade down volume and pause audio when sleep timer expires
+            setSpeakerVolumePercent(0)
+            setLedMode(LuxeLedMode.OFF)
         }
     }
 
-    fun triggerStereoOrToneTest(channel: OutputChannel, frequencyHz: Float = _uiState.value.testFrequencyHz) {
-        val tag = "TONE_${channel.name}"
+    fun triggerSpeakerToneTest(frequencyHz: Float = _uiState.value.testFrequencyHz) {
+        val tag = "SPEAKER_TONE"
         if (_uiState.value.activeAcousticTest == tag) {
             stopAcousticTest()
         } else {
@@ -395,30 +352,14 @@ class HearablesViewModel(application: Application) : AndroidViewModel(applicatio
                 activeAcousticTest = tag,
                 testFrequencyHz = frequencyHz
             )
-            acousticGenerator.playContinuousTone(frequencyHz, channel)
+            acousticGenerator.playContinuousTone(frequencyHz, OutputChannel.BOTH_STEREO)
         }
     }
 
     fun updateTestFrequency(frequencyHz: Float) {
         _uiState.value = _uiState.value.copy(testFrequencyHz = frequencyHz)
-        val active = _uiState.value.activeAcousticTest ?: return
-        if (active.startsWith("TONE_")) {
-            val chName = active.removePrefix("TONE_")
-            val ch = runCatching { OutputChannel.valueOf(chName) }.getOrDefault(OutputChannel.BOTH_STEREO)
-            acousticGenerator.playContinuousTone(frequencyHz, ch)
-        }
-    }
-
-    fun runEarTipSealTest() {
-        _uiState.value = _uiState.value.copy(
-            activeAcousticTest = "SEAL_TEST",
-            sealTestStatus = "Testing 55 Hz Sub-Bass vs 500 Hz Reference... Listen for equal loudness"
-        )
-        acousticGenerator.playEarTipSealTest {
-            _uiState.value = _uiState.value.copy(
-                activeAcousticTest = null,
-                sealTestStatus = "Seal Test Complete: If 55 Hz felt strong & full in both ears, your ear-tip seal is airtight."
-            )
+        if (_uiState.value.activeAcousticTest == "SPEAKER_TONE") {
+            acousticGenerator.playContinuousTone(frequencyHz, OutputChannel.BOTH_STEREO)
         }
     }
 
@@ -427,13 +368,9 @@ class HearablesViewModel(application: Application) : AndroidViewModel(applicatio
         _uiState.value = _uiState.value.copy(activeAcousticTest = null)
     }
 
-    fun sendRawHexPacket(hex: String): Boolean {
-        return protocolEngine.sendRawHexCommand(_uiState.value.effectiveSdk, hex)
-    }
+    fun sendRawHexPacket(hex: String): Boolean = protocolEngine.sendCustomHexFrame(hex)
 
-    fun clearProtocolLogs() {
-        protocolEngine.clearLogs()
-    }
+    fun clearProtocolLogs() = protocolEngine.clearLogs()
 
     // =========================================================================
     // THEME, FOREGROUND DSP SERVICE & EXPORT/IMPORT
@@ -452,11 +389,6 @@ class HearablesViewModel(application: Application) : AndroidViewModel(applicatio
     fun setHapticSliders(enabled: Boolean) {
         prefs.hapticSliders = enabled
         _uiState.value = _uiState.value.copy(hapticSliders = enabled)
-    }
-
-    fun setLowBatteryAlertPercent(percent: Int) {
-        prefs.lowBatteryAlertPercent = percent
-        _uiState.value = _uiState.value.copy(lowBatteryAlertPercent = percent)
     }
 
     fun startPersistentDspService() {

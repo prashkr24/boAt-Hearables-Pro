@@ -12,11 +12,10 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Dashboard
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.GraphicEq
-import androidx.compose.material.icons.filled.Science
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.TouchApp
+import androidx.compose.material.icons.filled.Speaker
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -38,7 +37,6 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.boat.hearables.pro.ui.screens.CockpitScreen
 import com.boat.hearables.pro.ui.screens.ControlsScreen
-import com.boat.hearables.pro.ui.screens.DiagnosticsScreen
 import com.boat.hearables.pro.ui.screens.EqualizerScreen
 import com.boat.hearables.pro.ui.screens.SettingsScreen
 import com.boat.hearables.pro.ui.theme.BoatHearablesProTheme
@@ -64,18 +62,16 @@ class MainActivity : ComponentActivity() {
             val vm: HearablesViewModel = viewModel()
             val uiState by vm.uiState.collectAsState()
             val telemetry by vm.telemetry.collectAsState()
-            val pairedDevices by vm.pairedDevices.collectAsState()
             val packetLogs by vm.packetLogs.collectAsState()
 
             BoatHearablesProTheme(
                 accentTheme = uiState.accentTheme,
                 oledPitchBlack = uiState.oledPitchBlack
             ) {
-                HearablesProApp(
+                NirvanaLuxeStudioApp(
                     viewModel = vm,
                     uiState = uiState,
                     telemetry = telemetry,
-                    pairedDevices = pairedDevices,
                     packetLogs = packetLogs
                 )
             }
@@ -104,20 +100,18 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-private fun HearablesProApp(
+private fun NirvanaLuxeStudioApp(
     viewModel: HearablesViewModel,
     uiState: com.boat.hearables.pro.viewmodel.HearablesUiState,
-    telemetry: com.boat.hearables.pro.protocol.LiveTelemetry,
-    pairedDevices: List<com.boat.hearables.pro.protocol.PairedBtDevice>,
+    telemetry: com.boat.hearables.pro.protocol.LuxeSpeakerTelemetry,
     packetLogs: List<com.boat.hearables.pro.protocol.ProtocolPacketLog>
 ) {
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
 
     val tabs = listOf(
-        NavTab("Cockpit", Icons.Default.Dashboard),
-        NavTab("Studio EQ", Icons.Default.GraphicEq),
-        NavTab("Controls", Icons.Default.TouchApp),
-        NavTab("Lab & Find", Icons.Default.Science),
+        NavTab("Luxe Speaker", Icons.Default.Speaker),
+        NavTab("Custom EQ", Icons.Default.GraphicEq),
+        NavTab("Auto & Lab", Icons.Default.AutoAwesome),
         NavTab("Settings", Icons.Default.Settings)
     )
 
@@ -159,7 +153,6 @@ private fun HearablesProApp(
                 0 -> CockpitScreen(
                     uiState = uiState,
                     telemetry = telemetry,
-                    pairedDevices = pairedDevices,
                     viewModel = viewModel,
                     onNavigateToEq = { selectedTab = 1 }
                 )
@@ -169,15 +162,10 @@ private fun HearablesProApp(
                 )
                 2 -> ControlsScreen(
                     uiState = uiState,
-                    viewModel = viewModel
-                )
-                3 -> DiagnosticsScreen(
-                    uiState = uiState,
-                    telemetry = telemetry,
                     packetLogs = packetLogs,
                     viewModel = viewModel
                 )
-                4 -> SettingsScreen(
+                3 -> SettingsScreen(
                     uiState = uiState,
                     viewModel = viewModel
                 )

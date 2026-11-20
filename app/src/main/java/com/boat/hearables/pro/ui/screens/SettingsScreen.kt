@@ -6,8 +6,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -30,12 +28,10 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -54,12 +50,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.boat.hearables.pro.data.AccentTheme
-import com.boat.hearables.pro.data.ChipsetSdk
+import com.boat.hearables.pro.data.BoatDeviceCatalog
 import com.boat.hearables.pro.viewmodel.HearablesUiState
 import com.boat.hearables.pro.viewmodel.HearablesViewModel
-import kotlin.math.roundToInt
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun SettingsScreen(
     uiState: HearablesUiState,
@@ -77,12 +71,12 @@ fun SettingsScreen(
     ) {
         Column {
             Text(
-                text = "Studio Preferences & Protocol Engine",
+                text = "Nirvana Luxe Studio Settings",
                 fontSize = 20.sp,
                 fontWeight = FontWeight.ExtraBold
             )
             Text(
-                text = "Customize themes, override chipset SDK protocols & manage background DSP",
+                text = "Customize themes, background DSP service & export your Nirvana Luxe EQ profiles",
                 fontSize = 12.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -103,7 +97,7 @@ fun SettingsScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("UI Accent Theme & Display", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                    Text("Luxe Accent Theme & Display", fontSize = 16.sp, fontWeight = FontWeight.Bold)
                     Icon(Icons.Default.Palette, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                 }
 
@@ -162,7 +156,7 @@ fun SettingsScreen(
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text("Tactile Haptic Feedback on EQ Sliders", fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                        Text("Micro-vibrations when dragging 10-band spline curve", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("Micro-vibrations when dragging the 7-band spline curve", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     Switch(
                         checked = uiState.hapticSliders,
@@ -172,71 +166,7 @@ fun SettingsScreen(
             }
         }
 
-        // 2. CHIPSET PROTOCOL OVERRIDE
-        Card(
-            shape = RoundedCornerShape(22.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(
-                modifier = Modifier.padding(18.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("Hardware Chipset Protocol Engine", fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                        Text(
-                            "Auto-resolved: ${uiState.selectedDevice.sdk.displayName}",
-                            fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    Icon(Icons.Default.Memory, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                }
-
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(
-                        selected = uiState.chipsetOverride == null,
-                        onClick = { viewModel.setChipsetOverride(null) },
-                        label = { Text("Auto (${uiState.selectedDevice.sdk.badge})", fontSize = 11.sp) }
-                    )
-                    ChipsetSdk.entries.forEach { sdk ->
-                        FilterChip(
-                            selected = uiState.chipsetOverride == sdk,
-                            onClick = { viewModel.setChipsetOverride(sdk) },
-                            label = { Text(sdk.badge, fontSize = 11.sp) }
-                        )
-                    }
-                }
-
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(modifier = Modifier.padding(12.dp)) {
-                        Text(
-                            text = "Active Wire Spec: ${uiState.effectiveSdk.displayName}",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                        Text(
-                            text = "SPP UUID: ${uiState.effectiveSdk.sppUuid}\nBLE Service: ${uiState.effectiveSdk.bleServiceUuid}\n${uiState.effectiveSdk.protocolSummary}",
-                            fontSize = 11.sp,
-                            fontFamily = FontFamily.Monospace,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-            }
-        }
-
-        // 3. PERSISTENT FOREGROUND DSP SERVICE & BATTERY THRESHOLD
+        // 2. PERSISTENT FOREGROUND DSP SERVICE & JSON PROFILE BACKUP
         Card(
             shape = RoundedCornerShape(22.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -251,9 +181,9 @@ fun SettingsScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column {
-                        Text("Background DSP & Profile Backup", fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                        Text("Keep 10-band EQ alive across Spotify, YouTube & system audio", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Background Speaker DSP & Profile Backup", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                        Text("Keep 7-band custom EQ & Room Calibration active across all music apps", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     Icon(Icons.Default.NotificationsActive, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                 }
@@ -275,26 +205,6 @@ fun SettingsScreen(
                     }
                 }
 
-                Column {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text("Low-Battery Warning Threshold", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                        Text(
-                            text = "${uiState.lowBatteryAlertPercent}%",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                    Slider(
-                        value = uiState.lowBatteryAlertPercent.toFloat(),
-                        onValueChange = { viewModel.setLowBatteryAlertPercent(it.roundToInt()) },
-                        valueRange = 5f..50f
-                    )
-                }
-
                 OutlinedButton(
                     onClick = {
                         jsonContent = viewModel.exportProfilesJson()
@@ -305,12 +215,56 @@ fun SettingsScreen(
                 ) {
                     Icon(Icons.Default.Code, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Export / Import Custom EQ Profiles (JSON)")
+                    Text("Export / Import Nirvana Luxe EQ Profiles (JSON)")
                 }
             }
         }
 
-        // 4. REVERSE-ENGINEERED DE-BLOAT & OPTIMIZATION SUMMARY
+        // 3. NIRVANA LUXE HARDWARE PROTOCOL ARCHITECTURE
+        Card(
+            shape = RoundedCornerShape(22.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier.padding(18.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("boAt Nirvana Luxe BES Hardware Spec", fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                    Icon(Icons.Default.Memory, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                }
+
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = "Target Device: ${BoatDeviceCatalog.TARGET_DEVICE_NAME} (Strict Filter)\n" +
+                            "RFCOMM SPP: ${BoatDeviceCatalog.BES_SPP_UUID}\n" +
+                            "BLE Service: ${BoatDeviceCatalog.BES_BLE_SERVICE_UUID}\n" +
+                            "BES Header: 13 04 [len_lo] [len_hi] [opcode] [payload]\n" +
+                            "• 0x13 (19): 7-Band Custom EQ (60, 120, 250, 750, 2k, 5k, 15k Hz)\n" +
+                            "• 0x1D (29): Sound Mode (00=Signature, 02=360° Spatial, 01=Cinema)\n" +
+                            "• 0x1C (28): LED Light Show (01..04=Modes 1..4, 05=LED Off)\n" +
+                            "• 0x85 (-123): Broadcast PartySync Multi-Speaker Link\n" +
+                            "• 0x16 (22): Dual Multipoint Connection\n" +
+                            "• 0x80 (-128): Speaker Battery Telemetry",
+                        fontSize = 11.sp,
+                        fontFamily = FontFamily.Monospace,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(12.dp)
+                    )
+                }
+            }
+        }
+
+        // 4. DE-BLOATED BUILD SUMMARY
         Card(
             shape = RoundedCornerShape(22.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -325,15 +279,14 @@ fun SettingsScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("De-Bloated Pro Build vs Official v1.9.0 APK", fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                    Text("Dedicated Nirvana Luxe Build vs Stock APK", fontSize = 15.sp, fontWeight = FontWeight.Bold)
                     Icon(Icons.Default.Shield, contentDescription = null, tint = Color(0xFF00E676))
                 }
 
                 Text(
-                    text = "• APK Footprint: Reduced from 138.8 MB to ~4 MB (-97% size; stripped >80 MB of bloated Lottie JSONs & 3.1 MB JioSaavn ad GIFs).\n" +
-                        "• Custom 10-Band EQ Unlocked: Removed Constants.j2 device whitelist and non-SDK seekbar lock; works on ALL 95+ boAt devices.\n" +
-                        "• 100% Ad & Tracker Free: Removed UniversalAdSlot, Monatisation, JioSaavn/KukuFM/Wynk/Spotify ad widgets, CartActivity store, Instagram promo stories, CleverTap, Mixpanel & Firebase In-App Messaging.\n" +
-                        "• Zero Mandatory Login: Removed forced phone OTP / email registration and BoatAI subscription paywalls.",
+                    text = "• Strictly detects and connects ONLY to your boAt Nirvana Luxe speaker (ignores all other Bluetooth devices).\n" +
+                        "• Unlocks custom 7-band BES hardware EQ (opcode 0x13) + Room Placement calibration which the stock v1.9.0 app hid from the UI.\n" +
+                        "• ~2.6 MB footprint vs 138.8 MB stock APK (-98% size), zero ads, zero trackers, zero mandatory phone OTP login.",
                     fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     lineHeight = 18.sp
@@ -347,7 +300,7 @@ fun SettingsScreen(
     if (showJsonDialog) {
         AlertDialog(
             onDismissRequest = { showJsonDialog = false },
-            title = { Text("Export / Import EQ Profiles JSON", fontWeight = FontWeight.Bold) },
+            title = { Text("Export / Import Nirvana Luxe EQ JSON", fontWeight = FontWeight.Bold) },
             text = {
                 OutlinedTextField(
                     value = jsonContent,
