@@ -379,7 +379,7 @@ class HearableProtocolEngine(private val context: Context) {
             out[0] = 0x13 // 1043 & 0xFF
             out[1] = 0x04 // (1043 >> 8) & 0xFF
             out[2] = (len and 0xFF).toByte()
-            out[3] = ((len >> 8) and 0xFF).toByte()
+            out[3] = ((len shr 8) and 0xFF).toByte()
             System.arraycopy(body, 0, out, 4, len)
         }
     }
